@@ -152,6 +152,8 @@ private class MessageSendingQueue {
                         // Retry sending after 0.5s
                         self?.sendNextMessage(afterDelay: 0.5)
                     } else {
+                        // The message was marked as failed so it's safe
+                        // to remove the request and carry on.
                         self?.removeRequestAndContinue(request)
                     }
                 }
