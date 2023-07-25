@@ -9,6 +9,12 @@ enum MessageRepositoryError: LocalizedError {
     case messageNotPendingSend
     case messageDoesNotHaveValidChannel
     case failedToSendMessage
+    
+    // Failed to send and we shouldn't remove the send request
+    // from the request queue because we failed to mark the messages's
+    // status to .sendingFailed and thus we can't let the user know it
+    // has failed.
+    case failedToSendMessageWithStatusUpdateError
 }
 
 class MessageRepository {
@@ -56,8 +62,8 @@ class MessageRepository {
             }, completion: { error in
                 if let error = error {
                     log.error("Error changing localMessageState message with id \(messageId) to `sending`: \(error)")
-                    self?.markMessageAsFailedToSend(id: messageId) {
-                        completion(.failure(.failedToSendMessage))
+                    self?.markMessageAsFailedToSend(id: messageId, isForced: true) { error in
+                        completion(.failure(error == nil ? .failedToSendMessage : .failedToSendMessageWithStatusUpdateError))
                     }
                     return
                 }
@@ -119,16 +125,25 @@ class MessageRepository {
 
         let isBounced = (error as? ClientError)?.isBouncedMessageError ?? false
 
-        markMessageAsFailedToSend(id: messageId, isBounced: isBounced) {
-            completion(.failure(.failedToSendMessage))
+        markMessageAsFailedToSend(id: messageId, isBounced: isBounced) { error in
+            completion(.failure(error == nil ? .failedToSendMessage : .failedToSendMessageWithStatusUpdateError))
         }
     }
 
-    private func markMessageAsFailedToSend(id: MessageId, isBounced: Bool? = nil, completion: @escaping () -> Void) {
+    private func markMessageAsFailedToSend(
+        id: MessageId,
+        isForced: Bool? = nil,
+        isBounced: Bool? = nil,
+        completion: @escaping (Error?) -> Void
+    ) {
         database.write({
             let dto = $0.message(id: id)
-            if dto?.localMessageState == .sending {
+            if dto?.localMessageState == .sending || (isForced ?? false) {
                 dto?.localMessageState = .sendingFailed
+            } else {
+                log.assertionFailure(
+                    "We shouldn't call it if we were not intending to update the status to .sendingFailed."
+                )
             }
 
             if let isBounced = isBounced {
@@ -141,7 +156,7 @@ class MessageRepository {
                     subsystems: .offlineSupport
                 )
             }
-            completion()
+            completion($0)
         })
     }
 

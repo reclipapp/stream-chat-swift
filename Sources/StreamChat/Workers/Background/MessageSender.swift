@@ -136,15 +136,27 @@ private class MessageSendingQueue {
     }
 
     /// Gets the oldest message from the queue and tries to send it.
-    private func sendNextMessage() {
-        dispatchQueue.async { [weak self] in
+    private func sendNextMessage(afterDelay delay: TimeInterval = 0) {
+        dispatchQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
             // Sort the messages and send the oldest one
             // If this proves to be a bottleneck in the future, we might
             // switch to using a custom `OrderedSet`
             guard let request = self?.requests.sorted(by: { $0.createdLocallyAt < $1.createdLocallyAt }).first else { return }
 
-            self?.messageRepository.sendMessage(with: request.messageId) { _ in
-                self?.removeRequestAndContinue(request)
+            self?.messageRepository.sendMessage(with: request.messageId) { result in
+                switch result {
+                case .success(_):
+                    self?.removeRequestAndContinue(request)
+                case let .failure(error):
+                    if error == .failedToSendMessageWithStatusUpdateError {
+                        // Retry sending after 0.5s
+                        self?.sendNextMessage(afterDelay: 0.5)
+                    } else {
+                        // The message was marked as failed so it's safe
+                        // to remove the request and carry on.
+                        self?.removeRequestAndContinue(request)
+                    }
+                }
             }
         }
     }
