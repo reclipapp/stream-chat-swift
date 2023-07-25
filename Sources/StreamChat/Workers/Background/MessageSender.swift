@@ -149,8 +149,8 @@ private class MessageSendingQueue {
                     self?.removeRequestAndContinue(request)
                 case let .failure(error):
                     if error == .failedToSendMessageWithStatusUpdateError {
-                        // Retry sending after 1s
-                        self?.sendNextMessage(afterDelay: 1)
+                        // Retry sending after 0.5s
+                        self?.sendNextMessage(afterDelay: 0.5)
                     } else {
                         self?.removeRequestAndContinue(request)
                     }
