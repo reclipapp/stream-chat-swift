@@ -159,6 +159,8 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
         }
     }
 
+    var mainThreadChanges = [ListChange<Item>]()
+
     /// Called with the aggregated changes after the internal `NSFetchResultsController` calls `controllerDidChangeContent`
     /// on its delegate.
     var onChange: (([ListChange<Item>]) -> Void)? {
@@ -167,6 +169,29 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                 // Ideally, this should rather be `unowned`, however, `deinit` is not always called on the same thread as this
                 // callback which can cause a race condition when the object is already being deinited on a different thread.
                 guard let self = self else { return }
+
+                if Thread.isMainThread {
+                    if #available(iOS 14, *) {
+                        mainThreadChanges.append(contentsOf: $0)
+                        let changesCount = mainThreadChanges.count
+                        Task.detached { [weak self] in
+                            guard let self else { return }
+                            assert(!Thread.isMainThread)
+                            let items = self.fetchItems()
+                            Task { @MainActor [weak self] in
+                                guard let self else { return }
+                                if changesCount == self.mainThreadChanges.count {
+                                    self._items.reset(items)
+                                    self.onChange?(self.mainThreadChanges)
+                                    self.mainThreadChanges.removeAll()
+                                } else {
+                                   assert(changesCount < self.mainThreadChanges.count)
+                                }
+                            }
+                        }
+                        return
+                    }
+                }
 
                 self._items.reset()
                 self.onChange?($0)

@@ -47,4 +47,11 @@ class Cached<T> {
     func reset() {
         _cached = nil
     }
+    
+    /// Resets the current cached value directly to a new value.
+    func reset(_ newValue: T) {
+        __cached.mutate { value in
+            value = newValue
+        }
+    }
 }
