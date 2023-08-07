@@ -264,9 +264,6 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
     /// - Throws: An error if the provided fetch request fails.
     func startObserving() throws {
         _items.computeValue = { [weak self] in
-            if Thread.isMainThread {
-                print("too bad")
-            }
             guard let frc = self?.frc,
                   let itemCreator = self?.itemCreator,
                   let context = self?.context else { return [] }
