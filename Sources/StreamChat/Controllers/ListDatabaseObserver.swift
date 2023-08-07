@@ -175,8 +175,11 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                     let changesCount = mainThreadChanges.count
                     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                         guard let self else { return }
+
+                        // fetch items (performAndWait) in the background
                         assert(!Thread.isMainThread)
                         let items = self._items.projectedValue()
+
                         DispatchQueue.main.async { [weak self] in
                             guard let self else { return }
                             guard changesCount == self.mainThreadChanges.count else {
@@ -184,7 +187,10 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                                 assert(changesCount < self.mainThreadChanges.count)
                                 return
                             }
-                            self._items.reset(items)
+                            
+                            // update items before `onChange` so that subsequent main thread items access
+                            // won't call computeValue().
+                            self._items.update(items)
                             self.onChange?(self.mainThreadChanges)
                             self.mainThreadChanges.removeAll()
                         }
