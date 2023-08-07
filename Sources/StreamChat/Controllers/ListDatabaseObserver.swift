@@ -177,7 +177,7 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                         Task.detached { [weak self] in
                             guard let self else { return }
                             assert(!Thread.isMainThread)
-                            let items = self.fetchItems()
+                            let items = self._items.projectedValue()
                             Task { @MainActor [weak self] in
                                 guard let self else { return }
                                 if changesCount == self.mainThreadChanges.count {
@@ -258,7 +258,23 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
     /// - Throws: An error if the provided fetch request fails.
     func startObserving() throws {
         _items.computeValue = { [weak self] in
-            return self?.fetchItems() ?? []
+            guard let frc = self?.frc,
+                  let itemCreator = self?.itemCreator,
+                  let context = self?.context else { return [] }
+            var result: LazyCachedMapCollection<Item>!
+            context.performAndWait {
+                result = .init(source: frc.fetchedObjects ?? [], map: { dto in
+                    // `itemCreator` returns non-optional value, so we can use implicitly unwrapped optional
+                    var resultItem: Item!
+                    do {
+                        resultItem = try itemCreator(dto)
+                    } catch {
+                        log.assertionFailure("Unable to convert a DB entity to model: \(error.localizedDescription)")
+                    }
+                    return resultItem
+                }, context: context)
+            }
+            return result
         }
 
         try frc.performFetch()
@@ -271,23 +287,6 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
         if onChange == nil {
             onChange = nil
         }
-    }
-    
-    private func fetchItems() -> LazyCachedMapCollection<Item> {
-        var result: LazyCachedMapCollection<Item>!
-        context.performAndWait {
-            result = .init(source: frc.fetchedObjects ?? [], map: { dto in
-                // `itemCreator` returns non-optional value, so we can use implicitly unwrapped optional
-                var resultItem: Item!
-                do {
-                    resultItem = try self.itemCreator(dto)
-                } catch {
-                    log.assertionFailure("Unable to convert a DB entity to model: \(error.localizedDescription)")
-                }
-                return resultItem
-            }, context: context)
-        }
-        return result
     }
 
     /// Listens for `Will/DidRemoveAllData` notifications from the context and simulates the callback when the notifications
