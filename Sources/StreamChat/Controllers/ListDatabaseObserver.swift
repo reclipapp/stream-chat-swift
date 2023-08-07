@@ -171,26 +171,25 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                 guard let self = self else { return }
 
                 if Thread.isMainThread {
-                    if #available(iOS 14, *) {
-                        mainThreadChanges.append(contentsOf: $0)
-                        let changesCount = mainThreadChanges.count
-                        Task.detached { [weak self] in
+                    mainThreadChanges.append(contentsOf: $0)
+                    let changesCount = mainThreadChanges.count
+                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                        guard let self else { return }
+                        assert(!Thread.isMainThread)
+                        let items = self._items.projectedValue()
+                        DispatchQueue.main.async { [weak self] in
                             guard let self else { return }
-                            assert(!Thread.isMainThread)
-                            let items = self._items.projectedValue()
-                            Task { @MainActor [weak self] in
-                                guard let self else { return }
-                                if changesCount == self.mainThreadChanges.count {
-                                    self._items.reset(items)
-                                    self.onChange?(self.mainThreadChanges)
-                                    self.mainThreadChanges.removeAll()
-                                } else {
-                                   assert(changesCount < self.mainThreadChanges.count)
-                                }
+                            guard changesCount == self.mainThreadChanges.count else {
+                                // more changes reported while fetching items
+                                assert(changesCount < self.mainThreadChanges.count)
+                                return
                             }
+                            self._items.reset(items)
+                            self.onChange?(self.mainThreadChanges)
+                            self.mainThreadChanges.removeAll()
                         }
-                        return
                     }
+                    return
                 }
 
                 self._items.reset()
