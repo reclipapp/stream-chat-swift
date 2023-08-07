@@ -194,7 +194,7 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                             
                             // make `items` up-to-date before `onChange`
                             self._items.update(items)
-                            self.onChange?(self.mainThreadChanges)
+                            self.onChange?(changes)
                         }
                     }
                 } else {
