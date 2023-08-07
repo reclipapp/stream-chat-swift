@@ -188,18 +188,19 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                                 return
                             }
                             
-                            // update items before `onChange` so that subsequent main thread items access
-                            // won't call computeValue().
+                            // clear `mainThreadChanges` before  `onChange` as it might be reentrant.
+                            let changes = self.mainThreadChanges
+                            self.mainThreadChanges.removeAll()
+                            
+                            // make `items` up-to-date before `onChange`
                             self._items.update(items)
                             self.onChange?(self.mainThreadChanges)
-                            self.mainThreadChanges.removeAll()
                         }
                     }
-                    return
+                } else {
+                    self._items.reset()
+                    self.onChange?($0)
                 }
-
-                self._items.reset()
-                self.onChange?($0)
             }
         }
     }
@@ -263,6 +264,9 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
     /// - Throws: An error if the provided fetch request fails.
     func startObserving() throws {
         _items.computeValue = { [weak self] in
+            if Thread.isMainThread {
+                print("too bad")
+            }
             guard let frc = self?.frc,
                   let itemCreator = self?.itemCreator,
                   let context = self?.context else { return [] }
