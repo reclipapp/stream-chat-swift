@@ -159,6 +159,8 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
         }
     }
 
+    var mainThreadChanges = [ListChange<Item>]()
+
     /// Called with the aggregated changes after the internal `NSFetchResultsController` calls `controllerDidChangeContent`
     /// on its delegate.
     var onChange: (([ListChange<Item>]) -> Void)? {
@@ -168,8 +170,37 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
                 // callback which can cause a race condition when the object is already being deinited on a different thread.
                 guard let self = self else { return }
 
-                self._items.reset()
-                self.onChange?($0)
+                if Thread.isMainThread {
+                    mainThreadChanges.append(contentsOf: $0)
+                    let changesCount = mainThreadChanges.count
+                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                        guard let self else { return }
+
+                        // fetch items (performAndWait) in the background
+                        assert(!Thread.isMainThread)
+                        let items = self._items.projectedValue()
+
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self else { return }
+                            guard changesCount == self.mainThreadChanges.count else {
+                                // more changes reported while fetching items
+                                assert(changesCount < self.mainThreadChanges.count)
+                                return
+                            }
+                            
+                            // clear `mainThreadChanges` before  `onChange` as it might be reentrant.
+                            let changes = self.mainThreadChanges
+                            self.mainThreadChanges.removeAll()
+                            
+                            // make `items` up-to-date before `onChange`
+                            self._items.update(items)
+                            self.onChange?(changes)
+                        }
+                    }
+                } else {
+                    self._items.reset()
+                    self.onChange?($0)
+                }
             }
         }
     }
