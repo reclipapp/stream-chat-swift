@@ -160,6 +160,7 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
     }
 
     var mainThreadChanges = [ListChange<Item>]()
+    var mainThreadChangesToken = 0
 
     /// Called with the aggregated changes after the internal `NSFetchResultsController` calls `controllerDidChangeContent`
     /// on its delegate.
@@ -172,7 +173,11 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
 
                 if Thread.isMainThread {
                     mainThreadChanges.append(contentsOf: $0)
+                    mainThreadChangesToken &+= 1 // &+= add 1 with overflow wrapping
+                    
                     let changesCount = mainThreadChanges.count
+                    let changesToken = mainThreadChangesToken
+                    
                     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                         guard let self else { return }
 
@@ -182,9 +187,7 @@ class ListDatabaseObserver<Item, DTO: NSManagedObject> {
 
                         DispatchQueue.main.async { [weak self] in
                             guard let self else { return }
-                            guard changesCount == self.mainThreadChanges.count else {
-                                // more changes reported while fetching items
-                                assert(changesCount < self.mainThreadChanges.count)
+                            guard changesToken == self.mainThreadChangesToken else {
                                 return
                             }
                             
